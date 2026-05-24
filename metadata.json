@@ -1,0 +1,6 @@
+{
+  "name": "TOEIC Learning Portal",
+  "description": "Full-stack TOEIC learning web application with tests, micro-practice, context-based vocabulary, and AI OCR parsing for admins.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
