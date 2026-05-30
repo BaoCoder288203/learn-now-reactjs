@@ -1,39 +1,22 @@
-# Multi-stage production Dockerfile
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy base package manifests
 COPY package*.json ./
-COPY prisma ./prisma/
-
-# Install dependencies including devDependencies to enable build compiles
 RUN npm ci
 
-# Generate Prisma Client classes
-RUN npx prisma generate
-
-# Copy workspace code
 COPY . .
 
-# Compile and bundle both typescript server and static client assets
-RUN npm run build \
-    && npm prune --production
+ARG VITE_API_URL=http://localhost:4000
+ENV VITE_API_URL=$VITE_API_URL
 
-# Final stage runtime runner
-FROM node:20-alpine
+RUN npm run build
 
-WORKDIR /app
+FROM nginx:alpine
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-EXPOSE 3000
+EXPOSE 80
 
-ENV NODE_ENV=production
-ENV PORT=3000
-
-# Boots up Express with SQLite dev.db initialized on initial launch
-CMD ["npm", "run", "start"]
+CMD ["nginx", "-g", "daemon off;"]

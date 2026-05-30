@@ -23,6 +23,7 @@ export interface Option {
 export interface Question {
   id: string;
   testPartId: string;
+  questionGroupId?: string;
   questionNumber: number;
   passage?: string;
   questionText: string;
@@ -31,6 +32,22 @@ export interface Question {
   audioUrl?: string;
   correctAnswer: string;
   options: Option[];
+  testPart?: {
+    id: string;
+    partNumber: number;
+    title: string;
+  };
+}
+
+export interface QuestionGroup {
+  id: string;
+  testPartId: string;
+  passage?: string;
+  transcript?: string;
+  audioUrl?: string;
+  imageUrl?: string;
+  groupOrder: number;
+  questions: Question[];
 }
 
 export interface TestPart {
@@ -39,13 +56,16 @@ export interface TestPart {
   partNumber: number;
   title: string;
   instructions?: string;
+  audioUrl?: string;
   questions: Question[];
+  questionGroups?: QuestionGroup[];
 }
 
 export interface Test {
   id: string;
   title: string;
   description?: string;
+  examType?: string;
   published: boolean;
   parts?: TestPart[];
   _count?: {
@@ -101,4 +121,38 @@ export interface UserVocabulary {
   status: "new" | "learning" | "mastered";
   createdAt: string;
   updatedAt: string;
+}
+
+export type IngestionStatus =
+  | "QUEUED"
+  | "EXTRACTING"
+  | "CLASSIFYING"
+  | "REVIEW_REQUIRED"
+  | "IMPORTING"
+  | "DONE"
+  | "FAILED";
+
+export type IngestionFileRole =
+  | "EXAM_DOC"
+  | "LISTENING_KEY_DOC"
+  | "READING_KEY_IMAGE"
+  | "AUDIO_FILE"
+  | "UNKNOWN";
+
+export interface IngestionFile {
+  id: string;
+  originalName: string;
+  mimeType: string;
+  storageKey: string;
+  detectedRole: IngestionFileRole;
+  confidence?: number;
+}
+
+export interface IngestionJob {
+  id: string;
+  status: IngestionStatus;
+  reviewRequired: boolean;
+  progressStep?: string;
+  errorMessage?: string;
+  files?: IngestionFile[];
 }

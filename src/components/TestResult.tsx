@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { ClipboardCheck, Sparkles, Plus, Check, Award, Eye, Volume2, BookOpen, AlertCircle, RefreshCw } from "lucide-react";
 import { TestAttempt, SelectedWord, UserVocabulary } from "../types.js";
+import { apiUrl, authFetch } from "../lib/api.js";
 
 interface TestResultProps {
   token: string;
-  attemptId: string;
-  onRestart: () => void;
 }
 
-export default function TestResult({ token, attemptId, onRestart }: TestResultProps) {
+export default function TestResult({ token }: TestResultProps) {
+  const { attemptId } = useParams<{ attemptId: string }>();
+  const navigate = useNavigate();
   const [attempt, setAttempt] = useState<TestAttempt | null>(null);
   const [selectedWords, setSelectedWords] = useState<SelectedWord[]>([]);
-  const [vocabNotebook, setVocabNotebook] = useState<Record<string, string>>({}); // Maps word -> status (saved/learning/etc)
+  const [vocabNotebook, setVocabNotebook] = useState<Record<string, string>>({});
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -22,32 +24,18 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
   useEffect(() => {
     async function loadResultData() {
       try {
-        // 1. Load finished test attempt with question correctness states
-        const attemptRes = await fetch(`/api/tests/finish`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ attemptId })
-        });
-        if (!attemptRes.ok) throw new Error("Failed to load finished attempt.");
+        const attemptRes = await authFetch(apiUrl(`/api/tests/attempts/${attemptId}`), token);
+        if (!attemptRes.ok) throw new Error("Không thể tải kết quả bài thi.");
         const attemptData = await attemptRes.json();
-        setAttempt(attemptData.attempt || attemptData);
+        setAttempt(attemptData.attempt);
 
-        // 2. Fetch words selected DURING this specific attempt
-        const wordsRes = await fetch(`/api/tests/attempts/${attemptId}/words`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const wordsRes = await authFetch(apiUrl(`/api/tests/attempts/${attemptId}/words`), token);
         if (wordsRes.ok) {
           const wordsData = await wordsRes.json();
           setSelectedWords(wordsData);
         }
 
-        // 3. Load user's current vocabulary notebook to match which selected words are already saved
-        const vocabRes = await fetch("/api/vocab", {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const vocabRes = await authFetch(apiUrl("/api/vocab"), token);
         if (vocabRes.ok) {
           const vocabData: UserVocabulary[] = await vocabRes.json();
           const vocabMap: Record<string, string> = {};
@@ -58,7 +46,7 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
         }
 
       } catch (err: any) {
-        setError(err.message || "Failed to load exam summaries");
+        setError(err.message || "Không thể tải tổng kết bài thi");
       } finally {
         setLoading(false);
       }
@@ -67,16 +55,12 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
     loadResultData();
   }, [attemptId, token]);
 
-  // Save selected word to vocab notebook
   const handleSaveToVocab = async (word: string, context: string, partNum: number, targetStatus: "learning" | "mastered") => {
     setSaveLoading(word);
     try {
-      const response = await fetch("/api/vocab", {
+      const response = await authFetch(apiUrl("/api/vocab"), token, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           word,
           sentenceContext: context,
@@ -102,7 +86,7 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
     return (
       <div className="max-w-7xl mx-auto px-4 py-20 flex flex-col items-center justify-center space-y-4">
         <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
-        <p className="text-gray-500 font-medium">Computing performance percentile scores & capturing stats...</p>
+        <p className="text-gray-500 font-medium">Đang tính điểm và tổng hợp kết quả...</p>
       </div>
     );
   }
@@ -112,18 +96,16 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="p-4 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-sm justify-center flex items-center">
           <AlertCircle className="w-5 h-5 shrink-0 mr-2" />
-          <span>Error compiling exam metrics: {error}</span>
+          <span>Lỗi khi tổng hợp kết quả: {error}</span>
         </div>
       </div>
     );
   }
 
-  // Aggregate stats
   const totalQuestions = attempt.answers?.length || 0;
   const correctCount = attempt.answers?.filter(a => a.isCorrect).length || 0;
   const scorePercentile = totalQuestions > 0 ? Math.round((correctCount / totalQuestions) * 100) : 0;
 
-  // Split answered questions by listening vs reading for segmented details
   const listeningAnswers = attempt.answers?.filter(a => {
     const partNum = a.question?.testPart?.partNumber || 1;
     return partNum >= 1 && partNum <= 4;
@@ -138,41 +120,39 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
 
   return (
     <div id="test-result-page" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
-      {/* Top Banner overall score */}
       <div className="bg-white border border-gray-200 p-8 rounded-2xl shadow-xs flex flex-col md:flex-row items-center justify-between gap-8">
         <div className="space-y-3 max-w-lg">
           <span className="inline-flex items-center px-2.5 py-1 bg-blue-50 text-blue-700 text-2xs rounded-full font-bold font-mono uppercase tracking-widest">
-            🏁 Attempt Completed Successfully
+            🏁 Hoàn thành Bài thi
           </span>
-          <h2 className="text-2xl font-serif md:text-3xl font-bold text-gray-900 leading-tight">
-            Diagnostic Score Card
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900 leading-tight">
+            Bảng Điểm
           </h2>
           <p className="text-sm text-gray-500 leading-normal">
-            Great efforts! Your diagnostic baseline represents standard TOEIC equivalent scores computed dynamically from Listening and Reading performance indicators.
+            Chúc mừng! Điểm số của bạn được tính dựa trên kết quả phần Nghe và phần Đọc theo thang điểm TOEIC chuẩn.
           </p>
 
           <div className="mt-4 flex items-center space-x-4">
             <button
-               onClick={onRestart}
+              onClick={() => navigate("/history")}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold flex items-center space-x-1 cursor-pointer transition-colors"
             >
               <RefreshCw className="w-3.5 h-3.5" />
-              <span>Back to Library</span>
+              <span>Về Thư viện</span>
             </button>
           </div>
         </div>
 
-        {/* Dynamic circular score showcase */}
         <div className="flex items-center space-x-6 shrink-0 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
           <div className="text-center space-y-1">
             <span className="text-3xs text-gray-400 uppercase tracking-widest font-bold block">
-              TOEIC ESTIMATE
+              ĐIỂM TOEIC ƯỚC TÍNH
             </span>
             <span className="text-5xl font-sans font-extrabold text-blue-600 tracking-tight block">
               {attempt.score}
             </span>
             <span className="text-3xs text-gray-400 font-mono block uppercase">
-              OUT OF 990 max
+              TRÊN TỔNG 990 ĐIỂM
             </span>
           </div>
 
@@ -181,10 +161,10 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
           <div className="space-y-3">
             <div className="space-y-1">
               <span className="text-4xs text-gray-400 uppercase font-mono block">
-                🎧 LISTENING SECTION
+                🎧 PHẦN NGHE
               </span>
               <span className="text-xs text-gray-800 font-bold block">
-                {countCorrect(listeningAnswers)} / {listeningAnswers.length} correct
+                {countCorrect(listeningAnswers)} / {listeningAnswers.length} đúng
               </span>
               <div className="w-24 bg-gray-200 h-1 rounded-full overflow-hidden">
                 <div
@@ -196,10 +176,10 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
 
             <div className="space-y-1">
               <span className="text-4xs text-gray-400 uppercase font-mono block">
-                📖 READING SECTION
+                📖 PHẦN ĐỌC
               </span>
               <span className="text-xs text-gray-800 font-bold block">
-                {countCorrect(readingAnswers)} / {readingAnswers.length} correct
+                {countCorrect(readingAnswers)} / {readingAnswers.length} đúng
               </span>
               <div className="w-24 bg-gray-200 h-1 rounded-full overflow-hidden">
                 <div
@@ -212,10 +192,8 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
         </div>
       </div>
 
-      {/* Main post-exam work area */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* REVIEW TABS SECTION */}
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-white border border-gray-100 p-2 rounded-xl flex space-x-1">
             <button
@@ -226,7 +204,7 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                   : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
               }`}
             >
-              📖 Words selected in this test ({selectedWords.length})
+              📖 Từ vựng đã chọn ({selectedWords.length})
             </button>
             <button
               onClick={() => setActiveReviewTab("questions")}
@@ -236,23 +214,22 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                   : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
               }`}
             >
-              📝 Review Answers & Spoken Audiotext
+              📝 Xem lại Đáp án & Bản ghi
             </button>
           </div>
 
-          {/* TAB 1: ACTIVE SELECT WORDS LOG */}
           {activeReviewTab === "words" && (
             <div className="space-y-4">
               <div className="p-4 bg-blue-50/40 border border-blue-100 rounded-xl text-2xs text-slate-800">
-                ⭐ <strong>Special Highlight System:</strong> All words highlighted by clicking during parts 5–7 are compiled here with original visual query contexts. Add them below to organize memory flags.
+                ⭐ <strong>Hệ thống Bôi chọn:</strong> Tất cả từ vựng bạn đã bôi chọn trong Part 5–7 được tổng hợp tại đây kèm ngữ cảnh. Thêm vào sổ từ vựng bên dưới để ôn tập.
               </div>
 
               {selectedWords.length === 0 ? (
                 <div className="text-center py-12 bg-white border border-gray-100 rounded-2xl">
                   <BookOpen className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                  <p className="text-gray-500 font-medium">No words were selected during this session.</p>
+                  <p className="text-gray-500 font-medium">Không có từ vựng nào được chọn trong lần thi này.</p>
                   <p className="text-4xs text-gray-400 uppercase tracking-widest font-mono mt-1">
-                    HINT: Nex time, click on tough words in Part 5, 6, or 7 to capture them here!
+                    GỢI Ý: Lần sau, hãy nhấn vào các từ khó trong Part 5, 6 hoặc 7 để lưu lại!
                   </p>
                 </div>
               ) : (
@@ -273,25 +250,23 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                               {wordObj.word}
                             </span>
                             <span className="px-2 py-0.5 rounded text-blue-700 text-4xs font-bold font-mono tracking-wider bg-blue-50 border border-blue-100/30">
-                              PART {wordObj.partNumber} • Q{wordObj.question?.questionNumber || "?"}
+                              PART {wordObj.partNumber} • C{wordObj.question?.questionNumber || "?"}
                             </span>
                           </div>
 
                           <div className="p-2.5 bg-gray-50 rounded-lg text-xs border border-gray-100 italic flex space-x-2 text-gray-600">
-                            <span className="text-blue-400 shrink-0 font-mono uppercase text-4xs select-none">CONTEXT:</span>
+                            <span className="text-blue-400 shrink-0 font-mono uppercase text-4xs select-none">NGỮ CẢNH:</span>
                             <p className="leading-relaxed">
-                              {/* Bold targeted word key */}
-                              {wordObj.sentenceContext || "Noun in visual block."}
+                              {wordObj.sentenceContext || "Từ trong đoạn văn."}
                             </p>
                           </div>
                         </div>
 
-                        {/* Flashcard style quick-add buttons */}
                         <div className="flex items-center space-x-2 shrink-0">
                           {isSaved ? (
                             <div className="flex items-center space-x-1 text-green-700 bg-green-50 border border-green-200 px-3 py-1.5 rounded-lg text-2xs font-semibold">
                               <Check className="w-3.5 h-3.5 shrink-0" />
-                              <span className="capitalize">Notebook: {currentStatus}</span>
+                              <span className="capitalize">Sổ từ: {currentStatus === "learning" ? "Đang học" : currentStatus === "mastered" ? "Đã thuộc" : currentStatus}</span>
                             </div>
                           ) : (
                             <div className="flex space-x-1">
@@ -300,14 +275,14 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                                 onClick={() => handleSaveToVocab(wordObj.word, wordObj.sentenceContext, wordObj.partNumber, "learning")}
                                 className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-2xs font-bold rounded-lg transition-colors cursor-pointer"
                               >
-                                {saveLoading === wordObj.word ? "..." : "+ Learning"}
+                                {saveLoading === wordObj.word ? "..." : "+ Đang học"}
                               </button>
                               <button
                                 disabled={saveLoading === wordObj.word}
                                 onClick={() => handleSaveToVocab(wordObj.word, wordObj.sentenceContext, wordObj.partNumber, "mastered")}
                                 className="px-2.5 py-1.5 bg-green-50 hover:bg-green-100 text-green-700 text-2xs font-bold rounded-lg transition-colors cursor-pointer"
                               >
-                                {saveLoading === wordObj.word ? "..." : "✓ Mastered"}
+                                {saveLoading === wordObj.word ? "..." : "✓ Đã thuộc"}
                               </button>
                             </div>
                           )}
@@ -320,7 +295,6 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
             </div>
           )}
 
-          {/* TAB 2: DETAILED QUESTION BY QUESTION ANSWERS & TRANSCRIPTS */}
           {activeReviewTab === "questions" && (
             <div className="space-y-6" id="test-questions-review-list">
               {attempt.answers?.map((ans, index) => {
@@ -338,16 +312,15 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                         : "border-rose-100 hover:border-rose-300"
                     }`}
                   >
-                    {/* Badge and Part info */}
                     <div className="flex items-center justify-between pb-3 border-b border-gray-50">
                       <div className="flex items-center space-x-2">
                         <span className={`px-2.5 py-0.5 rounded text-4xs font-bold font-mono uppercase tracking-widest ${
                           isListening ? "bg-blue-50 text-blue-700 font-bold border border-blue-100/30" : "bg-teal-50 text-teal-800"
                         }`}>
-                          {isListening ? "🎧 Listening Part" : "📖 Reading Part"} {partNum}
+                          {isListening ? "🎧 Phần Nghe" : "📖 Phần Đọc"} {partNum}
                         </span>
                         <span className="text-2xs text-gray-400 font-mono">
-                          Question {index + 1}
+                          Câu {index + 1}
                         </span>
                       </div>
 
@@ -356,33 +329,28 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                           ? "bg-green-100 text-green-800"
                           : "bg-rose-100 text-rose-800"
                       }`}>
-                        {ans.isCorrect ? "CORRECT" : `INCORRECT • Selected: ${ans.selectedOption || "None"}`}
+                        {ans.isCorrect ? "ĐÚNG" : `SAI • Đã chọn: ${ans.selectedOption || "Không"}`}
                       </span>
                     </div>
 
-                    {/* Passage representation if reading */}
                     {question.passage && (
                       <div className="p-4 bg-slate-50 border border-slate-100 rounded-xl">
-                        <span className="text-3xs font-mono text-gray-400 block mb-1">Passage Reference:</span>
+                        <span className="text-3xs font-mono text-gray-400 block mb-1">Đoạn văn Tham khảo:</span>
                         <p className="text-xs text-gray-700 whitespace-pre-line leading-relaxed font-sans">
                           {question.passage}
                         </p>
                       </div>
                     )}
 
-                    {/* Transcript Highlight for PARTS 1–4 */}
                     {isListening && question.transcript && (
                       <div className="p-4 bg-blue-50/25 border border-blue-100/35 rounded-xl space-y-2">
                         <span className="text-3xs font-mono text-blue-700 uppercase tracking-widest font-bold flex items-center space-x-1">
                           <Volume2 className="w-3 h-3 text-blue-500" />
-                          <span>Spoken Audio Script / Conversation:</span>
+                          <span>Bản ghi Âm thanh / Hội thoại:</span>
                         </span>
                         
-                        {/* Highlights relevant clues inside the transcript */}
                         <div className="text-xs font-mono leading-relaxed text-gray-700 whitespace-pre-line">
-                          {/* Premium feature: dynamic clue highlight */}
                           {question.transcript.split("\n").map((line, lIdx) => {
-                            // Find relevant answer area for photograph / statement
                             const isAnswerLine = line.toLowerCase().includes(question.options.find(o => o.letter === question.correctAnswer)?.text.toLowerCase() || "") || line.toLowerCase().includes("narrator statement " + question.correctAnswer.toLowerCase());
                             return (
                               <p
@@ -400,21 +368,19 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
                         </div>
                         {question.correctAnswer && (
                           <div className="text-4xs text-amber-900 font-bold tracking-widest uppercase mt-2">
-                            ⭐ HIGHLIGHTED LINE DETERMINES OPTION {question.correctAnswer}
+                            ⭐ DÒNG ĐƯỢC TÔ SÁNG LÀ ĐÁP ÁN {question.correctAnswer}
                           </div>
                         )}
                       </div>
                     )}
 
-                    {/* Question prompt or details */}
                     <div className="space-y-1">
-                      <span className="text-4xs text-gray-400 uppercase font-mono block">Question Prompt text:</span>
+                      <span className="text-4xs text-gray-400 uppercase font-mono block">Nội dung câu hỏi:</span>
                       <p className="text-sm font-semibold text-gray-900">
                         {question.questionText}
                       </p>
                     </div>
 
-                    {/* Show Options letter codes */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                       {question.options.map((opt) => {
                         const isCorrectKey = opt.letter.toUpperCase() === question.correctAnswer.toUpperCase();
@@ -452,47 +418,46 @@ export default function TestResult({ token, attemptId, onRestart }: TestResultPr
           )}
         </div>
 
-        {/* STUDY TIP AND ACTION TIMELINE SIDEBAR */}
         <div className="space-y-6">
           <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-xl border border-slate-800 space-y-4">
             <h3 className="text-xs font-bold tracking-widest uppercase font-mono text-blue-300">
-              📊 Performance Overview
+              📊 Tổng quan Kết quả
             </h3>
             
             <div className="space-y-3 pt-2 text-xs">
               <div className="flex justify-between items-center text-gray-300">
-                <span>Accurate score rate:</span>
+                <span>Tỷ lệ đúng:</span>
                 <strong className="text-white">{scorePercentile}%</strong>
               </div>
               <div className="flex justify-between items-center text-gray-300">
-                <span>Total Items:</span>
-                <strong className="text-white">{totalQuestions} questions</strong>
+                <span>Tổng số câu:</span>
+                <strong className="text-white">{totalQuestions} câu hỏi</strong>
               </div>
               <div className="flex justify-between items-center text-gray-300">
-                <span>Correct items count:</span>
-                <strong className="text-emerald-400 font-bold">{correctCount} keys matched</strong>
+                <span>Số câu đúng:</span>
+                <strong className="text-emerald-400 font-bold">{correctCount} câu</strong>
               </div>
             </div>
 
             <div className="h-px bg-slate-800 my-4"></div>
 
             <p className="text-3xs text-slate-300 leading-relaxed font-sans italic">
-              "Continuous reinforcement of unfamiliar words helps lock short-term visual memories. Add items from the list to your workbook to study vocab."
+              "Ôn tập thường xuyên các từ vựng chưa quen giúp củng cố trí nhớ. Thêm từ vào sổ từ vựng để ôn tập hiệu quả hơn."
             </p>
           </div>
 
           <div className="bg-white border border-gray-200 rounded-2xl p-6 shadow-3xs space-y-3">
             <h4 className="text-xs font-bold text-gray-900 uppercase font-mono tracking-wider">
-              Need another attempt?
+              Muốn thi lại?
             </h4>
             <p className="text-2xs text-gray-500 leading-relaxed">
-              You can instantly reset this diagnostical template to try beat your previous score. All vocabularies added remain saved under your notebooks!
+              Bạn có thể làm lại bài thi để cải thiện điểm số. Tất cả từ vựng đã thêm vẫn được lưu trong sổ từ vựng!
             </p>
             <button
-              onClick={onRestart}
+              onClick={() => navigate("/tests")}
               className="w-full py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-xl transition-colors cursor-pointer text-center"
             >
-              Reset Exam Session
+              Làm lại Bài thi
             </button>
           </div>
         </div>
